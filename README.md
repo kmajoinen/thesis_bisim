@@ -1,3 +1,13 @@
+# Trust-region optimization for bisimulation-based representation learning
+
+This repository contains an implementation of a trust-region optimization for
+the bisimulation agent. The purpose is to improve the consistency of represenations and thereby the performance
+of the RL agent. Our methodolgy is implemented into a fork of the repository of Amy Zhang (their README below).
+
+The project uses Weights & Biases to log the results instead of the logger used by the original project, thought that implementation is present but commented out. 
+
+---
+
 # Learning Invariant Representations for Reinforcement Learning without Reconstruction
 
 ## Requirements
