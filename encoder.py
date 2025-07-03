@@ -79,15 +79,15 @@ class PixelEncoder(nn.Module):
         if step % log_freq != 0:
             return
 
-        for k, v in self.outputs.items():
-            L.log_histogram('train_encoder/%s_hist' % k, v, step)
-            if len(v.shape) > 2:
-                L.log_image('train_encoder/%s_img' % k, v[0], step)
-
-        for i in range(self.num_layers):
-            L.log_param('train_encoder/conv%s' % (i + 1), self.convs[i], step)
-        L.log_param('train_encoder/fc', self.fc, step)
-        L.log_param('train_encoder/ln', self.ln, step)
+        #for k, v in self.outputs.items():
+        #    L.log_histogram('train_encoder/%s_hist' % k, v, step)
+        #    if len(v.shape) > 2:
+        #        L.log_image('train_encoder/%s_img' % k, v[0], step)
+#
+        #for i in range(self.num_layers):
+        #    L.log_param('train_encoder/conv%s' % (i + 1), self.convs[i], step)
+        #L.log_param('train_encoder/fc', self.fc, step)
+        #L.log_param('train_encoder/ln', self.ln, step)
 
 
 class PixelEncoderCarla096(PixelEncoder):

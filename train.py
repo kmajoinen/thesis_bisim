@@ -12,6 +12,7 @@ import gym
 import time
 import json
 import dmc2gym
+import wandb
 
 import utils
 from logger import Logger
@@ -72,6 +73,7 @@ def parse_args():
     parser.add_argument('--decoder_weight_lambda', default=0.0, type=float)
     parser.add_argument('--num_layers', default=4, type=int)
     parser.add_argument('--num_filters', default=32, type=int)
+    parser.add_argument('--tr-beta', default=0.0, type=float)
     # sac
     parser.add_argument('--discount', default=0.99, type=float)
     parser.add_argument('--init_temperature', default=0.01, type=float)
@@ -87,6 +89,9 @@ def parse_args():
     parser.add_argument('--transition_model_type', default='', type=str, choices=['', 'deterministic', 'probabilistic', 'ensemble'])
     parser.add_argument('--render', default=False, action='store_true')
     parser.add_argument('--port', default=2000, type=int)
+    parser.add_argument('--wandb_sync', default=False, action='store_true')
+    parser.add_argument('--proj_name',type=str, default="thesis_karri")
+    parser.add_argument('--tr', default=False, action='store_true')
     args = parser.parse_args()
     return args
 
@@ -142,13 +147,13 @@ def evaluate(env, agent, video, num_episodes, L, step, device=None, embed_viz_di
             distance_driven_each_episode.append(dist_driven_this_episode)
 
         video.save('%d.mp4' % step)
-        L.log('eval/episode_reward', episode_reward, step)
+        #L.log('eval/episode_reward', episode_reward, step)
 
     if embed_viz_dir:
         dataset = {'obs': obses, 'values': values, 'embeddings': embeddings}
         torch.save(dataset, os.path.join(embed_viz_dir, 'train_dataset_{}.pt'.format(step)))
 
-    L.dump(step)
+    #L.dump(step)
 
     if do_carla_metrics:
         print('METRICS--------------------------')
@@ -160,7 +165,7 @@ def evaluate(env, agent, video, num_episodes, L, step, device=None, embed_viz_di
         print('---------------------------------')
 
 
-def make_agent(obs_shape, action_shape, args, device):
+def make_agent(obs_shape, action_shape, args, device, run):
     if args.agent == 'baseline':
         agent = BaselineAgent(
             obs_shape=obs_shape,
@@ -224,7 +229,10 @@ def make_agent(obs_shape, action_shape, args, device):
             transition_model_type=args.transition_model_type,
             num_layers=args.num_layers,
             num_filters=args.num_filters,
-            bisim_coef=args.bisim_coef
+            bisim_coef=args.bisim_coef,
+            tr_beta=args.tr_beta,
+            run=run,
+            wb=args.wb
         )
     elif args.agent == 'deepmdp':
         agent = DeepMDPAgent(
@@ -317,6 +325,28 @@ def main():
             frame_skip=args.action_repeat
         )
 
+    wb = args.wandb_sync
+    trust_region = args.tr
+    if trust_region: 
+        run_type = 'TR'
+    else:
+        run_type = 'OG'
+
+    run_name = f"{run_type}_{args.task_name}_s-{args.seed}"
+    proj_name = args.proj_name
+    print(f'{run_type} - {proj_name}')
+    if wb:
+        import wandb
+
+        run = wandb.init(
+            project=proj_name,
+            config=vars(args),
+            name=run_name,
+            save_code=True
+        )
+        print("WANDB")
+    else:
+        run = None
     # stack several consecutive frames together
     if args.encoder_type.startswith('pixel'):
         env = utils.FrameStack(env, k=args.frame_stack)
@@ -350,10 +380,12 @@ def main():
         obs_shape=env.observation_space.shape,
         action_shape=env.action_space.shape,
         args=args,
-        device=device
+        device=device,
+        run=run
     )
 
-    L = Logger(args.work_dir, use_tb=args.save_tb)
+    #L = Logger(args.work_dir, use_tb=args.save_tb)
+    L = 0
 
     episode, episode_reward, done = 0, 0, True
     start_time = time.time()
@@ -363,20 +395,25 @@ def main():
                 for i in range(1, args.k):  # fill k_obs with 0s if episode is done
                     replay_buffer.k_obses[replay_buffer.idx - i] = 0
             if step > 0:
-                L.log('train/duration', time.time() - start_time, step)
+                #L.log('train/duration', time.time() - start_time, step)
                 start_time = time.time()
-                L.dump(step)
+                #L.dump(step)
 
             # evaluate agent periodically
             if episode % args.eval_freq == 0:
-                L.log('eval/episode', episode, step)
+                #L.log('eval/episode', episode, step)
                 evaluate(eval_env, agent, video, args.num_eval_episodes, L, step)
                 if args.save_model:
                     agent.save(model_dir, step)
                 if args.save_buffer:
                     replay_buffer.save(buffer_dir)
 
-            L.log('train/episode_reward', episode_reward, step)
+            #L.log('train/episode_reward', episode_reward, step)
+
+            if wb:
+                run.define_metric("Episodic_return", step_metric="Global_step")
+                run.log({"Episodic_return": episode_reward,
+                        "Global_step":  step})
 
             obs = env.reset()
             done = False
@@ -385,7 +422,7 @@ def main():
             episode += 1
             reward = 0
 
-            L.log('train/episode', episode, step)
+            #L.log('train/episode', episode, step)
 
         # sample action for data collection
         if step < args.init_steps:

@@ -1,0 +1,10 @@
+*.txt
+*.out
+*.bak
+env/
+log/
+DMC/__pycache__/
+DMC/wandb/
+DMC/dmc2gym/__pycache__/
+.vscode/
+

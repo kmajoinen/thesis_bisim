@@ -98,7 +98,7 @@ class ReplayBuffer(object):
         np.copyto(self.actions[self.idx], action)
         np.copyto(self.curr_rewards[self.idx], curr_reward)
         np.copyto(self.rewards[self.idx], reward)
-        np.copyto(self.next_obses[self.idx], next_obs)
+        #np.copyto(self.next_obses[self.idx], next_obs)
         np.copyto(self.not_dones[self.idx], not done)
 
         self.idx = (self.idx + 1) % self.capacity
@@ -113,8 +113,11 @@ class ReplayBuffer(object):
         actions = torch.as_tensor(self.actions[idxs], device=self.device)
         curr_rewards = torch.as_tensor(self.curr_rewards[idxs], device=self.device)
         rewards = torch.as_tensor(self.rewards[idxs], device=self.device)
+        #next_obses = torch.as_tensor(
+        #    self.next_obses[idxs], device=self.device
+        #).float()
         next_obses = torch.as_tensor(
-            self.next_obses[idxs], device=self.device
+            self.obses[(idxs+1) % self.current_size], device=self.device
         ).float()
         not_dones = torch.as_tensor(self.not_dones[idxs], device=self.device)
         if k:

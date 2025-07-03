@@ -8,6 +8,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from copy import deepcopy
 
 import utils
 from sac_ae import  Actor, Critic, LOG_FREQ
@@ -48,7 +49,10 @@ class BisimAgent(object):
         decoder_weight_lambda=0.0,
         num_layers=4,
         num_filters=32,
-        bisim_coef=0.5
+        bisim_coef=0.5,
+        tr_beta=0.0,
+        wb=False,
+        run=None
     ):
         self.device = device
         self.discount = discount
@@ -60,6 +64,13 @@ class BisimAgent(object):
         self.decoder_latent_lambda = decoder_latent_lambda
         self.transition_model_type = transition_model_type
         self.bisim_coef = bisim_coef
+        self.tr_beta = tr_beta
+        self.trust_region = False
+        if tr_beta > 0.0:
+            self.trust_region = True
+        if wb:
+            import wandb
+        self.run = run
 
         self.actor = Actor(
             obs_shape, action_shape, hidden_dim, encoder_type,
@@ -78,6 +89,11 @@ class BisimAgent(object):
         ).to(device)
 
         self.critic_target.load_state_dict(self.critic.state_dict())
+        self.prev_encoder = deepcopy(self.critic.encoder)
+        self.prev_encoder.eval()
+        for p in self.prev_encoder.parameters():
+            p.requires_grad = False
+        self.prev_encoder_state = deepcopy(self.critic.encoder.state_dict())
 
         self.transition_model = make_transition_model(
             transition_model_type, encoder_feature_dim, action_shape
@@ -162,14 +178,14 @@ class BisimAgent(object):
         current_Q1, current_Q2 = self.critic(obs, action, detach_encoder=False)
         critic_loss = F.mse_loss(current_Q1,
                                  target_Q) + F.mse_loss(current_Q2, target_Q)
-        L.log('train_critic/loss', critic_loss, step)
+        #L.log('train_critic/loss', critic_loss, step)
 
         # Optimize the critic
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
         self.critic_optimizer.step()
 
-        self.critic.log(L, step)
+        #self.critic.log(L, step)
 
     def update_actor_and_alpha(self, obs, L, step):
         # detach encoder, so we don't update it with the actor loss
@@ -179,29 +195,33 @@ class BisimAgent(object):
         actor_Q = torch.min(actor_Q1, actor_Q2)
         actor_loss = (self.alpha.detach() * log_pi - actor_Q).mean()
 
-        L.log('train_actor/loss', actor_loss, step)
-        L.log('train_actor/target_entropy', self.target_entropy, step)
+        #L.log('train_actor/loss', actor_loss, step)
+        #L.log('train_actor/target_entropy', self.target_entropy, step)
         entropy = 0.5 * log_std.shape[1] * (1.0 + np.log(2 * np.pi)
                                             ) + log_std.sum(dim=-1)
-        L.log('train_actor/entropy', entropy.mean(), step)
+        #L.log('train_actor/entropy', entropy.mean(), step)
 
         # optimize the actor
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
         self.actor_optimizer.step()
 
-        self.actor.log(L, step)
+        #self.actor.log(L, step)
 
         self.log_alpha_optimizer.zero_grad()
         alpha_loss = (self.alpha *
                       (-log_pi - self.target_entropy).detach()).mean()
-        L.log('train_alpha/loss', alpha_loss, step)
-        L.log('train_alpha/value', self.alpha, step)
+        #L.log('train_alpha/loss', alpha_loss, step)
+        #L.log('train_alpha/value', self.alpha, step)
         alpha_loss.backward()
         self.log_alpha_optimizer.step()
 
     def update_encoder(self, obs, action, reward, L, step):
-        h = self.critic.encoder(obs)            
+        #self.prev_encoder_state = deepcopy(self.critic.encoder.state_dict())
+        h = self.critic.encoder(obs)
+        with torch.no_grad():
+            if self.trust_region:
+                h_old = self.prev_encoder(obs)
 
         # Sample random states across episodes at random
         batch_size = obs.size(0)
@@ -237,8 +257,19 @@ class BisimAgent(object):
             #     +  F.smooth_l1_loss(pred_next_latent_sigma1, pred_next_latent_sigma2, reduction='none')
 
         bisimilarity = r_dist + self.discount * transition_dist
-        loss = (z_dist - bisimilarity).pow(2).mean()
-        L.log('train_ae/encoder_loss', loss, step)
+
+        if self.trust_region:
+            trust_loss = F.smooth_l1_loss(h, h_old,reduction='none')
+            loss = (z_dist - bisimilarity).pow(2).mean() - self.tr_beta*trust_loss
+        else:
+            loss = (z_dist - bisimilarity).pow(2).mean()
+            trust_loss = 0.0
+        #L.log('train_ae/encoder_loss', loss, step)
+        if self.run is not None:
+            self.run.define_metric("Trust_region_loss", step_metric="Global_step")
+            self.run.log({"Trust_region_loss": trust_loss,
+                        "Global_step":  step})
+
         return loss
 
     def update_transition_reward_model(self, obs, action, next_obs, reward, L, step):
@@ -250,7 +281,7 @@ class BisimAgent(object):
         next_h = self.critic.encoder(next_obs)
         diff = (pred_next_latent_mu - next_h.detach()) / pred_next_latent_sigma
         loss = torch.mean(0.5 * diff.pow(2) + torch.log(pred_next_latent_sigma))
-        L.log('train_ae/transition_loss', loss, step)
+        #L.log('train_ae/transition_loss', loss, step)
 
         pred_next_latent = self.transition_model.sample_prediction(torch.cat([h, action], dim=1))
         pred_next_reward = self.reward_decoder(pred_next_latent)
@@ -261,17 +292,21 @@ class BisimAgent(object):
     def update(self, replay_buffer, L, step):
         obs, action, _, reward, next_obs, not_done = replay_buffer.sample()
 
-        L.log('train/batch_reward', reward.mean(), step)
+        #L.log('train/batch_reward', reward.mean(), step)
 
         self.update_critic(obs, action, reward, next_obs, not_done, L, step)
         transition_reward_loss = self.update_transition_reward_model(obs, action, next_obs, reward, L, step)
+
+        self.prev_encoder_state = deepcopy(self.critic.encoder.state_dict())
         encoder_loss = self.update_encoder(obs, action, reward, L, step)
+
         total_loss = self.bisim_coef * encoder_loss + transition_reward_loss
         self.encoder_optimizer.zero_grad()
         self.decoder_optimizer.zero_grad()
         total_loss.backward()
         self.encoder_optimizer.step()
         self.decoder_optimizer.step()
+        self.prev_encoder.load_state_dict(self.prev_encoder_state)
 
         if step % self.actor_update_freq == 0:
             self.update_actor_and_alpha(obs, L, step)
