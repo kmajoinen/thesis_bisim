@@ -3,8 +3,8 @@
 *.bak
 env/
 log/
-DMC/__pycache__/
-DMC/wandb/
-DMC/dmc2gym/__pycache__/
+__pycache__/
+dmc2gym/__pycache__/
+wandb/
 .vscode/
 

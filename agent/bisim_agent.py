@@ -269,6 +269,7 @@ class BisimAgent(object):
             self.run.define_metric("Trust_region_loss", step_metric="Global_step")
             self.run.log({"Trust_region_loss": trust_loss,
                         "Global_step":  step})
+            # TODO: log transition_dist, r_dist, z_dist, total loss, critic loss, policy loss, Q-func
 
         return loss
 

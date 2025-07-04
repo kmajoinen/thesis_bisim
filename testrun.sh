@@ -2,8 +2,8 @@
 
 #SBATCH --mem=70G
 #SBATCH --gpus=1
-#SBATCH --partition=gpu-h100-80g,gpu-a100-80g,gpu-v100-32g
-#SBATCH --time=12:00:00
+#SBATCH --partition=gpu-debug
+#SBATCH --time=00:30:00
 #SBATCH --cpus-per-task=8
 #SBATCH --job-name=bisim_base
 #SBATCH --error=./outfiles/error_%A_.err
@@ -31,4 +31,4 @@ srun python3 train.py \
     --seed $SEED \
     --wandb-sync \
     --tr-beta $BETA \
-    > outputs/bisim_outs.txt
+    > outputs/test_bisim_outs-$SLURM_JOB_ID.txt

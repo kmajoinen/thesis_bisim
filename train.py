@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import numpy as np
+print("Numpy version: ", np.__version__)
 import torch
 import argparse
 import os
@@ -21,7 +22,7 @@ from video import VideoRecorder
 from agent.baseline_agent import BaselineAgent
 from agent.bisim_agent import BisimAgent
 from agent.deepmdp_agent import DeepMDPAgent
-from agents.navigation.carla_env import CarlaEnv
+#from agents.navigation.carla_env import CarlaEnv
 
 
 def parse_args():
@@ -89,8 +90,8 @@ def parse_args():
     parser.add_argument('--transition_model_type', default='', type=str, choices=['', 'deterministic', 'probabilistic', 'ensemble'])
     parser.add_argument('--render', default=False, action='store_true')
     parser.add_argument('--port', default=2000, type=int)
-    parser.add_argument('--wandb_sync', default=False, action='store_true')
-    parser.add_argument('--proj_name',type=str, default="thesis_karri")
+    parser.add_argument('--wandb-sync', default=False, action='store_true')
+    parser.add_argument('--proj-name',type=str, default="thesis_karri")
     parser.add_argument('--tr', default=False, action='store_true')
     args = parser.parse_args()
     return args
@@ -165,7 +166,7 @@ def evaluate(env, agent, video, num_episodes, L, step, device=None, embed_viz_di
         print('---------------------------------')
 
 
-def make_agent(obs_shape, action_shape, args, device, run):
+def make_agent(obs_shape, action_shape, args, device, run, wb):
     if args.agent == 'baseline':
         agent = BaselineAgent(
             obs_shape=obs_shape,
@@ -232,7 +233,7 @@ def make_agent(obs_shape, action_shape, args, device, run):
             bisim_coef=args.bisim_coef,
             tr_beta=args.tr_beta,
             run=run,
-            wb=args.wb
+            wb=wb
         )
     elif args.agent == 'deepmdp':
         agent = DeepMDPAgent(
@@ -381,7 +382,8 @@ def main():
         action_shape=env.action_space.shape,
         args=args,
         device=device,
-        run=run
+        run=run,
+        wb=wb
     )
 
     #L = Logger(args.work_dir, use_tb=args.save_tb)

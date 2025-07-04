@@ -91,6 +91,7 @@ class ReplayBuffer(object):
 
         self.idx = 0
         self.last_save = 0
+        self.current_size = 0
         self.full = False
 
     def add(self, obs, action, curr_reward, reward, next_obs, done):
@@ -102,6 +103,7 @@ class ReplayBuffer(object):
         np.copyto(self.not_dones[self.idx], not done)
 
         self.idx = (self.idx + 1) % self.capacity
+        self.current_size = min(self.current_size + 1, self.capacity)
         self.full = self.full or self.idx == 0
 
     def sample(self, k=False):
