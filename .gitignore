@@ -7,4 +7,6 @@ __pycache__/
 dmc2gym/__pycache__/
 wandb/
 .vscode/
+outfiles/
+outputs/
 

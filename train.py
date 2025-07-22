@@ -333,7 +333,7 @@ def main():
     else:
         run_type = 'OG'
 
-    run_name = f"{run_type}_{args.task_name}_s-{args.seed}"
+    run_name = f"{run_type}_{args.domain_name}_{args.task_name}_s-{args.seed}"
     proj_name = args.proj_name
     print(f'{run_type} - {proj_name}')
     if wb:
@@ -388,7 +388,7 @@ def main():
 
     #L = Logger(args.work_dir, use_tb=args.save_tb)
     L = 0
-
+    initial_state = None
     episode, episode_reward, done = 0, 0, True
     start_time = time.time()
     for step in range(args.num_train_steps):
@@ -418,11 +418,19 @@ def main():
                         "Global_step":  step})
 
             obs = env.reset()
+
+            if initial_state is None:
+                initial_state = torch.FloatTensor(obs).to(device)
+                initial_state = initial_state.unsqueeze(0)
+
             done = False
             episode_reward = 0
             episode_step = 0
             episode += 1
             reward = 0
+            if wb:
+                print(f"INITIAL: {initial_state.shape}")
+                agent.eval_latent_diff(initial_state, step, dist_type="l1")
 
             #L.log('train/episode', episode, step)
 
@@ -453,6 +461,9 @@ def main():
 
         obs = next_obs
         episode_step += 1
+    if wb:
+        wandb.finish()
+
 
 
 def collect_data(env, agent, num_rollouts, path_length, checkpoint_path):

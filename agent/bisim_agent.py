@@ -80,12 +80,12 @@ class BisimAgent(object):
 
         self.critic = Critic(
             obs_shape, action_shape, hidden_dim, encoder_type,
-            encoder_feature_dim, num_layers, num_filters, encoder_stride
+            encoder_feature_dim, num_layers, num_filters, encoder_stride, wb
         ).to(device)
 
         self.critic_target = Critic(
             obs_shape, action_shape, hidden_dim, encoder_type,
-            encoder_feature_dim, num_layers, num_filters, encoder_stride
+            encoder_feature_dim, num_layers, num_filters, encoder_stride, wb
         ).to(device)
 
         self.critic_target.load_state_dict(self.critic.state_dict())
@@ -176,8 +176,9 @@ class BisimAgent(object):
 
         # get current Q estimates
         current_Q1, current_Q2 = self.critic(obs, action, detach_encoder=False)
-        critic_loss = F.mse_loss(current_Q1,
-                                 target_Q) + F.mse_loss(current_Q2, target_Q)
+        q1_loss = F.mse_loss(current_Q1, target_Q) 
+        q2_loss = F.mse_loss(current_Q2, target_Q)
+        critic_loss = q1_loss + q2_loss
         #L.log('train_critic/loss', critic_loss, step)
 
         # Optimize the critic
@@ -185,7 +186,27 @@ class BisimAgent(object):
         critic_loss.backward()
         self.critic_optimizer.step()
 
-        #self.critic.log(L, step)
+        self.critic.log(self.run, step)
+
+        if self.run is not None:
+            self.run.define_metric("critic/Critic_loss", step_metric="Global_step")
+            self.run.log({"critic/Critic_loss": critic_loss,
+                        "Global_step":  step})
+            
+            self.run.define_metric("critic/Q1_value", step_metric="Global_step")
+            self.run.define_metric("critic/Q2_value", step_metric="Global_step")
+            self.run.define_metric("critic/Q1_loss", step_metric="Global_step")
+            self.run.define_metric("critic/Q2_loss", step_metric="Global_step")
+            self.run.define_metric("critic/Q_loss", step_metric="Global_step")
+            self.run.log(
+            {
+            "critic/Q1_value": current_Q1.mean().item(),
+            "critic/Q2_value": current_Q2.mean().item(),
+            "critic/Q1_loss": q1_loss.item(),
+            "critic/Q2_loss": q2_loss.item(),
+            "Global_step": step
+            })
+
 
     def update_actor_and_alpha(self, obs, L, step):
         # detach encoder, so we don't update it with the actor loss
@@ -215,6 +236,24 @@ class BisimAgent(object):
         #L.log('train_alpha/value', self.alpha, step)
         alpha_loss.backward()
         self.log_alpha_optimizer.step()
+
+        if self.run is not None:
+            self.run.define_metric("actor/Actor_loss", step_metric="Global_step")
+            self.run.define_metric("actor/Target_entropy", step_metric="Global_step")
+            self.run.define_metric("actor/Entropy", step_metric="Global_step")
+            self.run.define_metric("actor/Alpha_loss", step_metric="Global_step")
+            self.run.define_metric("actor/Alpha_value", step_metric="Global_step")
+            self.run.log({"actor/Actor_loss": actor_loss.item(),
+                        "Global_step":  step})
+            self.run.log({"actor/Target_entropy": self.target_entropy,
+                        "Global_step":  step})
+            self.run.log({"actor/Entropy": entropy.mean(),
+                        "Global_step":  step})
+            self.run.log({"actor/Alpha_loss": alpha_loss.item(),
+                        "Global_step":  step})
+            self.run.log({"actor/Alpha_value": self.alpha,
+                        "Global_step":  step})
+
 
     def update_encoder(self, obs, action, reward, L, step):
         #self.prev_encoder_state = deepcopy(self.critic.encoder.state_dict())
@@ -259,17 +298,37 @@ class BisimAgent(object):
         bisimilarity = r_dist + self.discount * transition_dist
 
         if self.trust_region:
-            trust_loss = F.smooth_l1_loss(h, h_old,reduction='none')
-            loss = (z_dist - bisimilarity).pow(2).mean() - self.tr_beta*trust_loss
+            print("Trust loss")
+            trust_loss = F.smooth_l1_loss(h, h_old,reduction='mean')
+            loss = (z_dist - bisimilarity).pow(2).mean() + self.tr_beta*trust_loss
+            #print("Trust loss", trust_loss.item())
         else:
+            print("Bisim loss", )
             loss = (z_dist - bisimilarity).pow(2).mean()
             trust_loss = 0.0
+            print("Bisim loss", loss.item())
         #L.log('train_ae/encoder_loss', loss, step)
         if self.run is not None:
             self.run.define_metric("Trust_region_loss", step_metric="Global_step")
+            self.run.define_metric("Reward_dist_loss", step_metric="Global_step")
+            self.run.define_metric("Latent_dist_loss", step_metric="Global_step")
+            self.run.define_metric("Total_loss", step_metric="Global_step")
+            self.run.define_metric("Bisimilarity", step_metric="Global_step")
+            self.run.define_metric("Transition_distance", step_metric="Global_step")
             self.run.log({"Trust_region_loss": trust_loss,
                         "Global_step":  step})
-            # TODO: log transition_dist, r_dist, z_dist, total loss, critic loss, policy loss, Q-func
+            self.run.log({"Reward_distance": r_dist,
+                        "Global_step":  step})
+            self.run.log({"Latent_distance": z_dist,
+                        "Global_step":  step})
+            self.run.log({"Total_loss": loss,
+                        "Global_step":  step})
+            self.run.log({"Bisimilarity": bisimilarity,
+                        "Global_step":  step})
+            self.run.log({"Transition_distance": transition_dist,
+                        "Global_step":  step})
+            if not self.trust_region:
+                self.eval_latent_diff(obs, step, dist_type="l1")
 
         return loss
 
@@ -298,6 +357,7 @@ class BisimAgent(object):
         self.update_critic(obs, action, reward, next_obs, not_done, L, step)
         transition_reward_loss = self.update_transition_reward_model(obs, action, next_obs, reward, L, step)
 
+
         self.prev_encoder_state = deepcopy(self.critic.encoder.state_dict())
         encoder_loss = self.update_encoder(obs, action, reward, L, step)
 
@@ -307,6 +367,7 @@ class BisimAgent(object):
         total_loss.backward()
         self.encoder_optimizer.step()
         self.decoder_optimizer.step()
+            
         self.prev_encoder.load_state_dict(self.prev_encoder_state)
 
         if step % self.actor_update_freq == 0:
@@ -347,4 +408,17 @@ class BisimAgent(object):
         self.reward_decoder.load_state_dict(
             torch.load('%s/reward_decoder_%s.pt' % (model_dir, step))
         )
+
+    def eval_latent_diff(self, obs, step, dist_type="l1"):
+
+        h = self.critic.encoder(obs)
+        with torch.no_grad():
+            h_old = self.prev_encoder(obs)
+        
+        if dist_type == "l1":
+            trust_loss = F.smooth_l1_loss(h, h_old, reduction='mean')
+        if self.run is not None:
+            self.run.define_metric("Latent_diff (initial state)", step_metric = "Global_step")
+            self.run.log({"Latent_diff (initial state)": trust_loss,
+                    "Global_step": step})
 
