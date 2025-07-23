@@ -309,17 +309,23 @@ class BisimAgent(object):
             print("Bisim loss", loss.item())
         #L.log('train_ae/encoder_loss', loss, step)
         if self.run is not None:
-            self.run.define_metric("Trust_region_loss", step_metric="Global_step")
+            if self.trust_region:
+                self.run.define_metric("Trust_region_diff", step_metric="Global_step")
+                self.run.log({"Trust_region_diff": trust_loss,
+                        "Global_step":  step})
+            else:
+                latent_diff = self.eval_latent_diff(obs, step, dist_type="l1")
+                self.run.define_metric("Trust_region_diff", step_metric = "Global_step")
+                self.run.log({"Trust_region_diff": latent_diff,
+                    "Global_step": step})
             self.run.define_metric("Reward_dist_loss", step_metric="Global_step")
             self.run.define_metric("Latent_dist_loss", step_metric="Global_step")
             self.run.define_metric("Total_loss", step_metric="Global_step")
             self.run.define_metric("Bisimilarity", step_metric="Global_step")
             self.run.define_metric("Transition_distance", step_metric="Global_step")
-            self.run.log({"Trust_region_loss": trust_loss,
+            self.run.log({"Reward_dist_loss": r_dist,
                         "Global_step":  step})
-            self.run.log({"Reward_distance": r_dist,
-                        "Global_step":  step})
-            self.run.log({"Latent_distance": z_dist,
+            self.run.log({"Latent_dist_loss": z_dist,
                         "Global_step":  step})
             self.run.log({"Total_loss": loss,
                         "Global_step":  step})
@@ -327,9 +333,6 @@ class BisimAgent(object):
                         "Global_step":  step})
             self.run.log({"Transition_distance": transition_dist,
                         "Global_step":  step})
-            if not self.trust_region:
-                self.eval_latent_diff(obs, step, dist_type="l1")
-
         return loss
 
     def update_transition_reward_model(self, obs, action, next_obs, reward, L, step):
@@ -417,8 +420,7 @@ class BisimAgent(object):
         
         if dist_type == "l1":
             trust_loss = F.smooth_l1_loss(h, h_old, reduction='mean')
-        if self.run is not None:
-            self.run.define_metric("Latent_diff (initial state)", step_metric = "Global_step")
-            self.run.log({"Latent_diff (initial state)": trust_loss,
-                    "Global_step": step})
+
+        return trust_loss
+        
 

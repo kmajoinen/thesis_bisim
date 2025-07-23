@@ -1,6 +1,7 @@
 *.txt
 *.out
 *.bak
+clean_logs.sh
 env/
 log/
 __pycache__/
@@ -9,4 +10,5 @@ wandb/
 .vscode/
 outfiles/
 outputs/
+errors/
 

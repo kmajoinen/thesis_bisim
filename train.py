@@ -333,7 +333,7 @@ def main():
     else:
         run_type = 'OG'
 
-    run_name = f"{run_type}_{args.domain_name}_{args.task_name}_s-{args.seed}"
+    run_name = f"{run_type}_{args.domain_name}_{args.task_name}_s-{args.seed}_b-{args.tr_beta}"
     proj_name = args.proj_name
     print(f'{run_type} - {proj_name}')
     if wb:
@@ -430,7 +430,11 @@ def main():
             reward = 0
             if wb:
                 print(f"INITIAL: {initial_state.shape}")
-                agent.eval_latent_diff(initial_state, step, dist_type="l1")
+                latent_diff = agent.eval_latent_diff(initial_state, step, dist_type="l1")
+                run.define_metric("Trust_region_diff", step_metric = "Global_step")
+                run.log({"Trust_region_diff": latent_diff,
+                    "Global_step": step})
+
 
             #L.log('train/episode', episode, step)
 
